@@ -25,6 +25,7 @@ abstract contract State {
     uint256 public quorum;
 
     mapping(bytes32 => Transaction) public transactions;
+    // mapping(bytes32 => bytes32) public txDataHash; // dumb, but prover seems to be struggling in finding the correct storage in anyoneCanCallExecuteTransaction
     mapping(bytes32 => uint256) public transactionsTick;
     mapping(bytes32 => uint256) public transactionsRemovalTick;
     /// @dev List kept in sync to not lose information on mapping keys.

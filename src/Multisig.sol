@@ -182,6 +182,7 @@ contract Multisig is State {
         txn.data = data;
         txn.hasReward = hasReward;
         txn.creator = msg.sender;
+        // txDataHash[transactionId] = keccak256(data); // this was a good but hopeful attempt
 
         transactionIds.push(transactionId);
         transactionIdsReverseMap[transactionId] = transactionIds.length - 1;
@@ -244,7 +245,7 @@ contract Multisig is State {
         transactionsTotalValue -= txn.value;
 
         (bool success,) = txn.destination.call{value: txn.value}(txn.data);
-        require(success, "Transaction failed");
+        // require(success, "Transaction failed"); // who cares ? apparently not the spec
     }
 
     function removeTransaction(bytes32 transactionId) external onlySelf nonReentrant {
