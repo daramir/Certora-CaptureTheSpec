@@ -9,11 +9,14 @@ contract Multisig is State {
     error InvalidCreator();
     error InvalidValidator();
     error InvalidTick();
+    error InvalidTransactionId();
     error TransactionNotFound();
     error InsufficientValue();
     error InvalidConfirmation();
+    error TransactionAlreadyExists();
     error TransactionAlreadyConfirmed();
     error TransactionAlreadyExecuted();
+    error TransactionAlreadyRemoved();
     error TransactionNotConfirmed();
     error InsufficientBalance();
     error DuplicateValidator();
@@ -163,10 +166,10 @@ contract Multisig is State {
         bool hasReward
     ) public payable notSelf {
         if (tick == 0) revert InvalidTick();
-        // require(destination != address(0) && destination != address(this), "Invalid destination");
+        if (transactionId == bytes32(0)) revert InvalidTransactionId();
         if (destination == address(0)) revert InvalidDestination();
-        require(transactionId != bytes32(0), "Invalid transaction ID");
-        require(transactions[transactionId].destination == address(0), "Transaction exists");
+        if (transactionsRemovalTick[transactionId] > 0) revert TransactionAlreadyRemoved();
+        if (_transactionExists(transactionId)) revert TransactionAlreadyExists();
         require(msg.value >= value + (hasReward ? FEE : 0), "Insufficient value");
 
         Transaction storage txn = transactions[transactionId];
