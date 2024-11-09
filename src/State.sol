@@ -1,7 +1,6 @@
 pragma solidity ^0.8.7;
 
 abstract contract State {
-
     struct Transaction {
         address destination;
         uint256 value;
@@ -17,7 +16,7 @@ abstract contract State {
     mapping(address => uint256) public validatorsReverseMap;
     mapping(address => uint256) public validatorsAddTick;
     mapping(address => uint256) public validatorsRemovalTick;
-    
+
     /// @dev Mapping kept in sync with validator list for fast lookups.
     mapping(address => bool) public isValidator;
 
