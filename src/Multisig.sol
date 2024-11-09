@@ -48,7 +48,11 @@ contract Multisig is State {
     }
 
     modifier onlyValidator() {
-        if (!isValidator[msg.sender] || validatorsRemovalTick[msg.sender] > 0) revert InvalidValidator();
+        if (
+            !isValidator[msg.sender] // has to be a current validator
+                || validatorsRemovalTick[msg.sender] > 0 // can't be flagged as removed (clears when re-added)
+                || validatorsAddTick[msg.sender] > tick // can't have been added in the current tick
+        ) revert InvalidValidator();
         _;
     }
 
@@ -203,14 +207,21 @@ contract Multisig is State {
             && confirmationsTick[transactionId][msg.sender] >= transactionsTick[transactionId]
             && confirmationsTick[transactionId][msg.sender] > validatorsRemovalTick[msg.sender];
         if (alreadyConfirmed) revert TransactionAlreadyConfirmed();
+        uint256 preVoteConfirmationCount = _confirmationCount(transactionId);
 
         confirmations[transactionId][msg.sender] = true;
         confirmationsTick[transactionId][msg.sender] = tick;
-        // If enough confirmations, execute transaction
-        // if (isConfirmed(transactionId)) {
-        //     executeTransaction(transactionId);
-        // }
-        // Question: should voting increment tick??
+        if (_confirmationCount(transactionId) <= preVoteConfirmationCount) {
+            revert InvalidConfirmation();
+        }
+        // If targetting itself with enough confirmations, execute transaction
+        if (
+            transactions[transactionId].destination == address(this) && isConfirmed(transactionId)
+                && !transactions[transactionId].executed
+        ) {
+            executeTransaction(transactionId);
+        }
+        // should voting increment tick?? // A: YES as per voteForTransactionIntegrity
         tick++;
     }
 
@@ -236,7 +247,7 @@ contract Multisig is State {
         require(success, "Transaction failed");
     }
 
-    function removeTransaction(bytes32 transactionId) external onlySelf {
+    function removeTransaction(bytes32 transactionId) external onlySelf nonReentrant {
         if (!_transactionExists(transactionId)) revert TransactionNotFound();
         Transaction storage txn = transactions[transactionId];
         require(!txn.executed, "Transaction already executed");
