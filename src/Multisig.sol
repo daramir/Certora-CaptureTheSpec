@@ -237,8 +237,8 @@ contract Multisig is State {
     }
 
     function removeTransaction(bytes32 transactionId) external onlySelf {
+        if(!_transactionExists(transactionId)) revert TransactionNotFound();
         Transaction storage txn = transactions[transactionId];
-        require(txn.destination != address(0), "Transaction not found");
         require(!txn.executed, "Transaction already executed");
 
         uint256 txIndex = transactionIdsReverseMap[transactionId];
