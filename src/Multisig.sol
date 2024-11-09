@@ -4,9 +4,11 @@ import "./State.sol";
 
 contract Multisig is State {
     error ZeroAddress();
+    error InvalidDestination();
     error InvalidQuorum();
     error InvalidCreator();
     error InvalidValidator();
+    error InvalidTick();
     error TransactionNotFound();
     error InsufficientValue();
     error InvalidConfirmation();
@@ -43,7 +45,7 @@ contract Multisig is State {
     }
 
     modifier onlyValidator() {
-        require(isValidator[msg.sender], "Not a validator");
+        if (!isValidator[msg.sender] || validatorsRemovalTick[msg.sender] > 0) revert InvalidValidator();
         _;
     }
 
@@ -81,21 +83,20 @@ contract Multisig is State {
         if (isValidator[validator]) revert DuplicateValidator();
         if (newQuorum == 0 || newQuorum > validators.length + 1) revert InvalidQuorum();
 
-        tick++;
-
         validators.push(validator);
         validatorsReverseMap[validator] = validators.length - 1;
         validatorsAddTick[validator] = tick;
+        validatorsRemovalTick[validator] = 0; // refresh in case of re-add
         isValidator[validator] = true;
         quorum = newQuorum;
+        // Increment tick
+        tick++;
     }
 
     function removeValidator(address validator, uint256 newQuorum) external onlySelf {
         if (validator == address(0) || validator == address(this)) revert ZeroAddress();
         if (!isValidator[validator]) revert InvalidValidator();
         if (newQuorum == 0 || newQuorum > validators.length - 1) revert InvalidQuorum();
-
-        tick++;
 
         uint256 validatorIndex = validatorsReverseMap[validator];
         uint256 lastValidatorIndex = validators.length - 1;
@@ -109,6 +110,8 @@ contract Multisig is State {
         delete isValidator[validator];
         validatorsRemovalTick[validator] = tick;
         quorum = newQuorum;
+        // Increment tick
+        tick++;
     }
 
     function replaceValidator(address validator, address newValidator) external onlySelf {
@@ -116,8 +119,6 @@ contract Multisig is State {
         if (newValidator == address(0) || newValidator == address(this)) revert ZeroAddress();
         if (!isValidator[validator]) revert InvalidValidator();
         if (isValidator[newValidator]) revert DuplicateValidator();
-
-        tick++;
 
         uint256 validatorIndex = validatorsReverseMap[validator];
         validators[validatorIndex] = newValidator;
@@ -128,6 +129,8 @@ contract Multisig is State {
         delete validatorsReverseMap[validator];
         delete isValidator[validator];
         validatorsRemovalTick[validator] = tick;
+        // Increment tick
+        tick++;
     }
 
     function changeQuorum(uint256 _quorum) external onlySelf {
@@ -140,8 +143,16 @@ contract Multisig is State {
     }
 
     function _transactionExists(bytes32 transactionId) internal view returns (bool) {
-        if (transactionId == bytes32(0)) return false;
-        return transactions[transactionId].destination != address(0);
+        if (transactionId == bytes32(0)) {
+            return false;
+        } else if (transactions[transactionId].destination == address(0)) {
+            return false;
+        } else if (transactionsRemovalTick[transactionId] > 0) {
+            return false;
+        } else {
+            return transactionsTick[transactionId] > 0
+                && transactionIds[transactionIdsReverseMap[transactionId]] == transactionId;
+        }
     }
 
     function createTransaction(
@@ -151,11 +162,12 @@ contract Multisig is State {
         bytes calldata data,
         bool hasReward
     ) public payable notSelf {
-        require(destination != address(0) && destination != address(this), "Invalid destination");
+        if (tick == 0) revert InvalidTick();
+        // require(destination != address(0) && destination != address(this), "Invalid destination");
+        if (destination == address(0)) revert InvalidDestination();
         require(transactionId != bytes32(0), "Invalid transaction ID");
         require(transactions[transactionId].destination == address(0), "Transaction exists");
         require(msg.value >= value + (hasReward ? FEE : 0), "Insufficient value");
-
 
         Transaction storage txn = transactions[transactionId];
         txn.destination = destination;
@@ -184,13 +196,10 @@ contract Multisig is State {
 
     function voteForTransaction(bytes32 transactionId) external onlyValidator nonReentrant {
         if (!_transactionExists(transactionId)) revert TransactionNotFound();
-        bool alreadyConfirmed = confirmations[transactionId][msg.sender] &&
-            confirmationsTick[transactionId][msg.sender] >= transactionsTick[transactionId] &&
-            confirmationsTick[transactionId][msg.sender] > validatorsRemovalTick[msg.sender];
+        bool alreadyConfirmed = confirmations[transactionId][msg.sender]
+            && confirmationsTick[transactionId][msg.sender] >= transactionsTick[transactionId]
+            && confirmationsTick[transactionId][msg.sender] > validatorsRemovalTick[msg.sender];
         if (alreadyConfirmed) revert TransactionAlreadyConfirmed();
-
-        // Question: should voting increment tick??
-        tick++;
 
         confirmations[transactionId][msg.sender] = true;
         confirmationsTick[transactionId][msg.sender] = tick;
@@ -198,16 +207,18 @@ contract Multisig is State {
         if (isConfirmed(transactionId)) {
             executeTransaction(transactionId);
         }
+        // Question: should voting increment tick??
+        tick++;
     }
 
     function executeTransaction(bytes32 transactionId) public {
+        if (!_transactionExists(transactionId)) revert TransactionNotFound();
+        if (!isConfirmed(transactionId)) revert TransactionNotConfirmed();
         Transaction storage txn = transactions[transactionId];
-        require(txn.destination != address(0), "Transaction not found");
-        require(!txn.executed, "Already executed");
-        require(isConfirmed(transactionId), "Not confirmed");
+        if (txn.executed) revert TransactionAlreadyExecuted();
         require(address(this).balance >= txn.value + confirmedRewardsPot + pendingRewardsPot, "Insufficient balance");
 
-        tick++;
+        tick++; // should this tick?? tbd
 
         txn.executed = true;
 
@@ -226,8 +237,6 @@ contract Multisig is State {
         Transaction storage txn = transactions[transactionId];
         require(txn.destination != address(0), "Transaction not found");
         require(!txn.executed, "Transaction already executed");
-
-        tick++;
 
         uint256 txIndex = transactionIdsReverseMap[transactionId];
         uint256 lastTxIndex = transactionIds.length - 1;
@@ -255,8 +264,10 @@ contract Multisig is State {
 
         delete transactions[transactionId];
         delete transactionIdsReverseMap[transactionId];
+        delete transactionsTick[transactionId];
         transactionsRemovalTick[transactionId] = tick;
-
+        // Increment tick
+        tick++;
         // Refund the creator
         (bool success,) = creator.call{value: refundAmount}("");
         require(success, "Refund failed");
@@ -286,12 +297,15 @@ contract Multisig is State {
         for (uint256 i = 1; i < validators.length; i++) {
             if (
                 confirmations[transactionId][validators[i]]
-                    // && validatorsAddTick[validators[i]] <= transactionsTick[transactionId]
-                    && (
-                        validatorsRemovalTick[validators[i]] == 0
-                            // || validatorsRemovalTick[validators[i]] > transactionsTick[transactionId]
-                    )
+                    && confirmationsTick[transactionId][validators[i]] > transactionsTick[transactionId]
+                    && confirmationsTick[transactionId][validators[i]] > validatorsAddTick[validators[i]]
             ) {
+                // && validatorsAddTick[validators[i]] <= transactionsTick[transactionId]
+                // && (
+                //     validatorsRemovalTick[validators[i]] == 0
+                //         && confirmationsTick[transactionId][validators[i]] < validatorsRemovalTick[validators[i]]
+                // )
+
                 count++;
             }
         }
