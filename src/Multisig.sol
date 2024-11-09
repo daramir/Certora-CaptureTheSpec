@@ -207,9 +207,9 @@ contract Multisig is State {
         confirmations[transactionId][msg.sender] = true;
         confirmationsTick[transactionId][msg.sender] = tick;
         // If enough confirmations, execute transaction
-        if (isConfirmed(transactionId)) {
-            executeTransaction(transactionId);
-        }
+        // if (isConfirmed(transactionId)) {
+        //     executeTransaction(transactionId);
+        // }
         // Question: should voting increment tick??
         tick++;
     }
@@ -237,7 +237,7 @@ contract Multisig is State {
     }
 
     function removeTransaction(bytes32 transactionId) external onlySelf {
-        if(!_transactionExists(transactionId)) revert TransactionNotFound();
+        if (!_transactionExists(transactionId)) revert TransactionNotFound();
         Transaction storage txn = transactions[transactionId];
         require(!txn.executed, "Transaction already executed");
 
@@ -300,7 +300,7 @@ contract Multisig is State {
         for (uint256 i = 1; i < validators.length; i++) {
             if (
                 confirmations[transactionId][validators[i]]
-                    && confirmationsTick[transactionId][validators[i]] > transactionsTick[transactionId]
+                    && confirmationsTick[transactionId][validators[i]] >= transactionsTick[transactionId]
                     && confirmationsTick[transactionId][validators[i]] > validatorsAddTick[validators[i]]
             ) {
                 // && validatorsAddTick[validators[i]] <= transactionsTick[transactionId]
