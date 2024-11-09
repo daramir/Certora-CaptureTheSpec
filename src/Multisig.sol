@@ -266,19 +266,7 @@ contract Multisig is State {
         Transaction storage txn = transactions[transactionId];
         if (txn.destination == address(0)) return false;
 
-        uint256 count = 0;
-        for (uint256 i = 1; i < validators.length; i++) {
-            if (
-                confirmations[transactionId][validators[i]]
-                    && validatorsAddTick[validators[i]] <= transactionsTick[transactionId]
-                    && (
-                        validatorsRemovalTick[validators[i]] == 0
-                            || validatorsRemovalTick[validators[i]] > transactionsTick[transactionId]
-                    )
-            ) {
-                count++;
-            }
-        }
+        uint256 count = _confirmationCount(transactionId);
         return count >= quorum;
     }
 
@@ -291,13 +279,17 @@ contract Multisig is State {
     }
 
     function getConfirmationCount(bytes32 transactionId) external view returns (uint256 count) {
+        return _confirmationCount(transactionId);
+    }
+
+    function _confirmationCount(bytes32 transactionId) internal view returns (uint256 count) {
         for (uint256 i = 1; i < validators.length; i++) {
             if (
                 confirmations[transactionId][validators[i]]
-                    // && validatorsAddTick[validators[i]] <= transactionsTick[transactionId] // seems like this is "fine"
+                    // && validatorsAddTick[validators[i]] <= transactionsTick[transactionId]
                     && (
                         validatorsRemovalTick[validators[i]] == 0
-                            || validatorsRemovalTick[validators[i]] > transactionsTick[transactionId]
+                            // || validatorsRemovalTick[validators[i]] > transactionsTick[transactionId]
                     )
             ) {
                 count++;
@@ -308,7 +300,7 @@ contract Multisig is State {
     function distributeRewards() external {
         require(confirmedRewardsPot > 0, "No rewards to distribute");
         require(validators.length > 1, "No validators");
-        
+
         uint256 validatorCount = validators.length - 1; // Exclude index 0
         uint256 rewardPerValidator = confirmedRewardsPot / validatorCount;
         // Update confirmedRewardsPot to hold only the remainder
